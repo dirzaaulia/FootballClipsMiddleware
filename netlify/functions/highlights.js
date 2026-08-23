@@ -1,41 +1,43 @@
 const axios = require('axios');
 
 exports.handler = async function (event, context) {
-    // 1. Pastikan limit & offset di-parse menjadi Angka (Number/Integer)
-    const limitParam = event.queryStringParameters && event.queryStringParameters.limit
-        ? parseInt(event.queryStringParameters.limit, 10)
-        : 20;
+    const queryParams = event.queryStringParameters || {};
+    const currentYear = new Date().getFullYear(); // Otomatis dapat tahun berjalan (2026)
 
-    const offsetParam = event.queryStringParameters && event.queryStringParameters.offset
-        ? parseInt(event.queryStringParameters.offset, 10)
-        : 0;
+    // Buat query params untuk API pusat
+    const apiParams = {};
 
-    // API Key RapidAPI milikmu
+    // 1. Parameter Wajib Utama: Season (Mengambil tahun berjalan agar dapat data banyak dari berbagai liga)
+    apiParams.season = queryParams.season ? parseInt(queryParams.season, 10) : currentYear;
+
+    // 2. Parameter Opsional (jika dikirim dari Android)
+    if (queryParams.limit) apiParams.limit = parseInt(queryParams.limit, 10);
+    if (queryParams.offset) apiParams.offset = parseInt(queryParams.offset, 10);
+    if (queryParams.leagueId) apiParams.leagueId = queryParams.leagueId;
+    if (queryParams.country) apiParams.country = queryParams.country;
+    if (queryParams.search) apiParams.search = queryParams.search;
+
+    // Key RapidAPI
     const API_KEY = process.env.RAPIDAPI_KEY || '40067061-7935-4022-b2f4-320d7f0260a8';
 
     try {
-        // 2. Tembak API pusat dengan parameter dan header yang valid
         const response = await axios.get('https://soccer.highlightly.net/highlights', {
             headers: {
                 'x-rapidapi-key': API_KEY,
                 'x-rapidapi-host': 'soccer.highlightly.net',
                 'Accept': 'application/json'
             },
-            params: {
-                limit: limitParam,
-                offset: offsetParam
-            }
+            params: apiParams
         });
 
         const rawData = response.data;
 
-        // 3. Filter data: Hanya ambil item yang type-nya "VERIFIED"
+        // Filter data: Hanya ambil item yang type-nya "VERIFIED"
         let verifiedHighlights = [];
         if (rawData && Array.isArray(rawData.data)) {
             verifiedHighlights = rawData.data.filter(item => item.type === 'VERIFIED');
         }
 
-        // 4. Susun response JSON bersih untuk Android
         const cleanResponse = {
             status: "success",
             totalVerified: verifiedHighlights.length,
@@ -55,7 +57,6 @@ exports.handler = async function (event, context) {
     } catch (error) {
         console.error('RapidAPI Error Details:', error.response ? error.response.data : error.message);
 
-        // Kirim pesan error yang lebih detail agar gampang di-debug
         return {
             statusCode: error.response ? error.response.status : 500,
             headers: {
