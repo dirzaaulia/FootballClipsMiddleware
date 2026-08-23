@@ -1,55 +1,61 @@
 const axios = require('axios');
 
 exports.handler = async function (event, context) {
-    // Ambil query parameter dari request Android jika ada (misal: ?limit=20&offset=0)
-    const limit = event.queryStringParameters.limit || '20';
-    const offset = event.queryStringParameters.offset || '0';
+    // 1. Pastikan limit & offset di-parse menjadi Angka (Number/Integer)
+    const limitParam = event.queryStringParameters && event.queryStringParameters.limit
+        ? parseInt(event.queryStringParameters.limit, 10)
+        : 20;
 
-    // API Key kamu dari RapidAPI (Disimpan dengan aman di serverless)
+    const offsetParam = event.queryStringParameters && event.queryStringParameters.offset
+        ? parseInt(event.queryStringParameters.offset, 10)
+        : 0;
+
+    // API Key RapidAPI milikmu
     const API_KEY = process.env.RAPIDAPI_KEY || '40067061-7935-4022-b2f4-320d7f0260a8';
 
     try {
-        // 1. Tembak API Highlightly
+        // 2. Tembak API pusat dengan parameter dan header yang valid
         const response = await axios.get('https://soccer.highlightly.net/highlights', {
             headers: {
                 'x-rapidapi-key': API_KEY,
-                'x-rapidapi-host': 'soccer.highlightly.net'
+                'x-rapidapi-host': 'soccer.highlightly.net',
+                'Accept': 'application/json'
             },
             params: {
-                limit: limit,
-                offset: offset
+                limit: limitParam,
+                offset: offsetParam
             }
         });
 
         const rawData = response.data;
 
-        // 2. Filter data: Hanya ambil item yang type-nya "VERIFIED"
+        // 3. Filter data: Hanya ambil item yang type-nya "VERIFIED"
         let verifiedHighlights = [];
         if (rawData && Array.isArray(rawData.data)) {
             verifiedHighlights = rawData.data.filter(item => item.type === 'VERIFIED');
         }
 
-        // 3. Susun ulang response JSON untuk dikirim ke Android
+        // 4. Susun response JSON bersih untuk Android
         const cleanResponse = {
             status: "success",
             totalVerified: verifiedHighlights.length,
             pagination: rawData.pagination || {},
-            data: verifiedHighlights // Sudah bersih, HANYA VERIFIED
+            data: verifiedHighlights
         };
 
-        // 4. Return respon ke Android dengan status 200 OK & Header CORS
         return {
             statusCode: 200,
             headers: {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*' // Biar bisa diakses dari mana saja
+                'Access-Control-Allow-Origin': '*'
             },
             body: JSON.stringify(cleanResponse)
         };
 
     } catch (error) {
-        console.error('Error fetching data:', error.message);
+        console.error('RapidAPI Error Details:', error.response ? error.response.data : error.message);
 
+        // Kirim pesan error yang lebih detail agar gampang di-debug
         return {
             statusCode: error.response ? error.response.status : 500,
             headers: {
@@ -59,7 +65,8 @@ exports.handler = async function (event, context) {
             body: JSON.stringify({
                 status: "error",
                 message: "Gagal mengambil data dari API pusat",
-                error: error.message
+                statusCode: error.response ? error.response.status : 500,
+                apiErrorDetails: error.response ? error.response.data : error.message
             })
         };
     }
