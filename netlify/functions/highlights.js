@@ -4,11 +4,12 @@ exports.handler = async function (event, context) {
     const queryParams = event.queryStringParameters || {};
     const currentYear = new Date().getFullYear();
 
-    const apiParams = {};
-    apiParams.season = queryParams.season ? parseInt(queryParams.season, 10) : currentYear;
+    // Parameter normalisasi
+    const season = queryParams.season ? parseInt(queryParams.season, 10) : currentYear;
+    const limit = queryParams.limit ? Math.min(parseInt(queryParams.limit, 10), 40) : 40;
+    const offset = queryParams.offset ? parseInt(queryParams.offset, 10) : 0;
 
-    if (queryParams.limit) apiParams.limit = parseInt(queryParams.limit, 10);
-    if (queryParams.offset) apiParams.offset = parseInt(queryParams.offset, 10);
+    const apiParams = { season, limit, offset };
     if (queryParams.leagueId) apiParams.leagueId = queryParams.leagueId;
     if (queryParams.country) apiParams.country = queryParams.country;
 
@@ -25,7 +26,6 @@ exports.handler = async function (event, context) {
         });
 
         const rawData = response.data;
-
         let verifiedHighlights = [];
         if (rawData && Array.isArray(rawData.data)) {
             verifiedHighlights = rawData.data.filter(item => item.type === 'VERIFIED');
@@ -43,11 +43,19 @@ exports.handler = async function (event, context) {
             headers: {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*',
-                // 🔥 EDGE CACHE CONTROL:
-                // - Cache di browser/app user selama 3 menit (180s)
-                // - Cache di Netlify CDN selama 5 menit (300s)
-                // - Tampilkan data stale sebentar sambil revalidate di background
-                'Cache-Control': 'public, max-age=900, s-maxage=3600, stale-while-revalidate=600'
+
+                // 🔥 FIX UTAMA UNTUK NETLIFY EDGE CACHE:
+                // 1. Netlify-CDN-Cache-Control: Memaksa CDN Netlify menyimpan respon ini.
+                // 2. durable: Menyebarkan data cache ini ke seluruh region Netlify CDN secara global.
+                // 3. s-maxage=3600: Menahan cache di Netlify CDN selama 1 Jam (3600 detik).
+                // 4. stale-while-revalidate=600: Membalas instan data lama sambil membarui di background.
+                'Netlify-CDN-Cache-Control': 'public, durable, s-maxage=3600, stale-while-revalidate=600',
+
+                // Cache lokal di HP/Client App selama 15 menit
+                'Cache-Control': 'public, max-age=900, stale-while-revalidate=300',
+
+                // Abaikan perbedaan User-Agent/headers dari HP agar Cache Key selalu sama
+                'Netlify-Vary': 'query'
             },
             body: JSON.stringify(cleanResponse)
         };
@@ -58,7 +66,7 @@ exports.handler = async function (event, context) {
             headers: {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*',
-                'Cache-Control': 'no-cache' // Jika error, jangan di-cache
+                'Cache-Control': 'no-store' // Jangan simpan cache jika terjadi error
             },
             body: JSON.stringify({
                 status: "error",
